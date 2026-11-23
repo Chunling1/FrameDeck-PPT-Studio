@@ -17,6 +17,10 @@ if ($LASTEXITCODE) { throw 'Dependency installation failed' }
 foreach ($name in @('studio.py','app.py','providers.py','tasks.py','approvals.py','agent_backend.py','gateway.py','art_direction.py','engine.py','models.py','render.py','rebuild.py','launch.cmd','LICENSE','README.md','requirements.txt','static','skill')) {
     Copy-Item -LiteralPath (Join-Path $src $name) -Destination $out -Recurse
 }
+$docs = New-Item -ItemType Directory -Path (Join-Path $out 'docs')
+foreach ($name in @('guide.md','workspace.png')) {
+    Copy-Item -LiteralPath (Join-Path $src "docs\$name") -Destination $docs.FullName
+}
 & (Join-Path $rt 'python.exe') -c "import app,pypdf,openpyxl; print('portable runtime OK')"
 if ($LASTEXITCODE) {throw 'Portable runtime smoke test failed'}
 Write-Output $out
