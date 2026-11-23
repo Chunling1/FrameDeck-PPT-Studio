@@ -1,0 +1,172 @@
+import copy
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+from PIL import Image, ImageDraw
+from pptx import Presentation
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Pt
+import engine as e
+
+
+class InteractionQualityTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        for obj,attr,value in ((e,"HOME",Path(self.temp.name)),(e.providers.gateway,"profile",lambda:{})):
+            mock=patch.object(obj,attr,value)
+            mock.start()
+            self.addCleanup(mock.stop)
+
+    def approve(self,s,gate,choice=None):
+        r=e.approvals.review(s,gate,choice)
+        e.action(s,"approve",dict(checkpoint=gate,choice=choice,code=r["review_code"],user_reply="确认这个版本。"))
+
+    def test_interactive_requires_four_fresh_decisions(self):
+        s=e.create("互动演示","组员","面向组员的教程",demo=True)
+        # Keep the demo source but exercise actual interactive gates against simulated models.
+        s["demo"]=False
+        verified={"pass":True,"issues":[]}
+        def reply(role,*args,**kwargs):
+            return e.example() if role=="planner" and args[0]!=e.art_direction.DIRECTOR else (
+                {k:f"由左至右讲解 {k}" for k in e.art_direction.FIELDS} if role=="planner" else
+                {"checked_pages":[1,2,3,4],"findings":[]} if role=="auditor" else verified)
+        def draw(_,__,path,*args):
+            Image.new("RGB",(1280,720),"white").save(path)
+        with patch("providers.ask",side_effect=reply) as calls,patch("engine.providers.draw",side_effect=draw),patch(
+            "engine.sample_providers",return_value=["openai"]),patch("engine.reconstruct",side_effect=lambda _,item:item["scene"]):
+            review=e.approvals.review(s,"brief")
+            e.update_brief(s,{"brief":"改过目标的新版本"})
+            with self.assertRaisesRegex(ValueError,"过期"):
+                e.action(s,"approve",dict(checkpoint="brief",code=review["review_code"],user_reply="同意"))
+            with self.assertRaisesRegex(ValueError,"等待用户确认"):
+                e.action(s,"outline",{})
+            calls.assert_not_called()
+            updated=e.approvals.review(s,"brief")
+            with self.assertRaisesRegex(ValueError,"尚未明确同意"):
+                e.action(s,"approve",dict(checkpoint="brief",code=updated["review_code"],user_reply="不同意，先改一下"))
+            self.approve(s,"brief")
+            e.action(s,"outline",{})
+            with self.assertRaisesRegex(ValueError,"等待用户确认"):
+                e.action(s,"confirm_outline",{})
+            self.approve(s,"outline")
+            e.action(s,"confirm_outline",{})
+            for op in ("audit","samples"):
+                e.action(s,op,{})
+            with self.assertRaisesRegex(ValueError,"等待用户确认"):
+                e.action(s,"select",{"choice":"A"})
+            self.approve(s,"samples","A")
+            e.action(s,"select",{"choice":"A"})
+            e.action(s,"gallery",{})
+            self.assertTrue((e.root(s)/e.approvals.review(s,"gallery")["pptx"]).is_file())
+            with self.assertRaisesRegex(ValueError,"等待用户确认"):
+                e.action(s,"lock",{})
+            failed=copy.deepcopy(s)
+            failed["reports"]["visual"]["1"]["pass"]=False
+            with self.assertRaisesRegex(ValueError,"未通过"):
+                e.action(failed,"lock",{"force":True})
+            self.approve(s,"gallery")
+            e.action(s,"lock",{})
+            e.action(s,"export",{})
+        self.assertEqual(e.get(s["id"])["stage"],"exported")
+        self.assertEqual(set(s["approvals"]),set(e.approvals.GATES))
+
+    def test_auditor_cannot_switch_art_route(self):
+        s=e.create("校核","组员","教程",True)
+        e.action(s,"outline",{})
+        e.action(s,"confirm_outline",{})
+        art=s["directions"][0]["art"]
+        s["demo"]=False
+        response={"checked_pages":[1,2,3,4],"findings":[{"page":1,"field":"art","severity":"blocker",
+            "problem":"换成原生排版","suggestion":"询问用户","replacement":"无需生图。改为文字。"}]}
+        with patch("providers.ask",return_value=response):e.action(s,"audit",{})
+        self.assertEqual(s["directions"][0]["art"],art)
+        self.assertTrue(s["reports"]["audit"]["findings"][0]["changes_mode"])
+        self.assertFalse(e.current_prompt_audit(s))
+
+    def test_diagram_reconstructs_without_cropping(self):
+        s=e.create("分叉图","组员","教程")
+        root=e.root(s)
+        art="cache/fixture.png"
+        canvas=Image.new("RGB",(1280,720),"#F6F8FC")
+        draw=ImageDraw.Draw(canvas)
+        for x,y in [(100,300),(480,235),(480,435)]:
+            draw.rounded_rectangle((x,y,x+230,y+75),radius=12,fill="#DDEAF5")
+        canvas.save(root/art)
+        p=dict(kind="content",layout="left",title="任务状态",conclusion="条件判断有两条分支",copy=[],claims=[],asset="")
+        scene=e.render.scene(p,1,1,0,art)
+        base=[n for n in scene["nodes"] if n["type"]!="image"]
+        rows=[{k:n[k] for k in ("x","y","w","h")} | {"index":i,"keep":i not in (0,1,len(base)-3)}
+              for i,n in enumerate(base)]
+        rows[2].update(x=75,y=40,w=1100,h=80)
+        rows[3].update(x=75,y=145,w=1100,h=60)
+        boxes=[{"index":i,"x":x,"y":y,"w":230,"h":75}
+               for i,(x,y) in enumerate([(100,300),(480,235),(480,435)])]
+        item={"scene":scene,"preview":art,"full_image":True,
+              "diagram":{"labels":["读取状态","已完成","未完成"],"links":[[0,1],[0,2]]}}
+        with patch("providers.ask",return_value={"background":"F6F8FC","objects":rows,"crops":[],"diagram_boxes":boxes}):
+            pair=e.pair_page(s,item)
+        out=root/"output"
+        e.render.decks([pair["native_scene"]],root,out,editable_name="diagram.pptx")
+        e.render.verify_editable(out/"diagram.pptx",[pair["native_scene"]])
+        ppt=Presentation(out/"diagram.pptx")
+        links=[shape for shape in ppt.slides[0].shapes if shape.name=="关系连线"]
+        self.assertEqual(len(links),2)
+        self.assertFalse(any(n["type"]=="image" for n in pair["native_scene"]["nodes"]))
+        self.assertEqual(pair["preview"],art)
+
+
+    def test_diagram_preserves_visual_hierarchy_in_export(self):
+        project=e.create("监测流程样张","课题组","设备监测与数据预处理")
+        root=e.root(project)
+        art="cache/styled-reference.png"
+        Image.new("RGB",(1280,720),"#F6F4EB").save(root/art)
+        labels=["现场：确认测点","监测：记录工况","整理：对齐时间","归档：保留原始记录"]
+        page=dict(kind="content",layout="wide",title="热泵监测数据怎么整理",
+                  conclusion="从测点与工况记录出发，追溯每一次处理。",copy=[],claims=[],asset="")
+        scene=e.render.scene(page,1,1,0,art)
+        base=[n for n in scene["nodes"] if n["type"]!="image"]
+        rows=[{k:n[k] for k in ("x","y","w","h")} | {"index":i,"keep":i not in (0,1,len(base)-3)}
+              for i,n in enumerate(base)]
+        rows[2].update(x=74,y=66,w=1130,h=68,size=50)
+        rows[3].update(x=74,y=145,w=1130,h=54,size=29)
+        boxes=[]
+        for i,(label,x) in enumerate(zip(labels,[74,370,666,962])):
+            title,body=label.split("：")
+            boxes.append(dict(index=i,x=x,y=272,w=230,h=256,size=28,align="left",valign="middle",
+                              pad_x=28,pad_y=12,lines=[title+"：",body],fill="213E35" if i==2 else "DCE3D6",
+                              color="FFFFFF" if i==2 else "233C34",number=f"{i+1:02}",
+                              number_color="A35833" if i==3 else "506156",corner_radius=18))
+        boxes[-1].update(stroke="A35833",stroke_width=4)
+        edges=[dict(index=i,color="233C34",width=5) for i in range(3)]
+        item=dict(scene=scene,preview=art,full_image=True,diagram=dict(labels=labels,links=[[0,1],[1,2],[2,3]]))
+        result=dict(background="F6F4EB",objects=rows,crops=[],diagram_boxes=boxes,diagram_edges=edges)
+        with patch("providers.ask",return_value=result):
+            paired=e.pair_page(project,item)
+        native=paired["native_scene"]
+        self.assertTrue((root/paired["native_preview"]).is_file())
+        dest=root/"output"/"diagram-styled.pptx"
+        e.render.decks([native],root,dest.parent,editable_name=dest.name)
+        e.render.verify_editable(dest,[native])
+        shapes=list(Presentation(dest).slides[0].shapes)
+        numbered={shape.text:shape for shape in shapes if shape.has_text_frame and shape.text in ("01","02","03","04")}
+        nodes=[shape for shape in shapes if shape.name.startswith("关系节点：")]
+        connections=[shape for shape in shapes if shape.name=="关系连线"]
+        self.assertEqual(set(numbered),{"01","02","03","04"})
+        self.assertLess(numbered["04"].top+numbered["04"].height,nodes[-1].top)
+        self.assertEqual(numbered["04"].text_frame.paragraphs[0].alignment,PP_ALIGN.RIGHT)
+        self.assertFalse(nodes[-1].text_frame.word_wrap)
+        self.assertEqual(nodes[-1].text.splitlines(),["归档：","保留原始记录"])
+        self.assertTrue(all(p.alignment==PP_ALIGN.LEFT for p in nodes[-1].text_frame.paragraphs))
+        self.assertEqual(str(nodes[-1].line.color.rgb),"A35833")
+        self.assertEqual(nodes[-1].line.width,Pt(3))
+        self.assertEqual(str(nodes[2].fill.fore_color.rgb),"213E35")
+        self.assertEqual(str(connections[0].line.color.rgb),"233C34")
+        self.assertEqual(connections[0].line.width,Pt(3.75))
+        self.assertEqual(connections[0]._element.xpath(".//a:stCxn")[0].get("id"),str(nodes[0].shape_id))
+        self.assertEqual(connections[0]._element.xpath(".//a:endCxn")[0].get("id"),str(nodes[1].shape_id))
+        boxes[-1]["lines"]=["归档：","替换确认过的文案"]
+        with patch("providers.ask",return_value=result),self.assertRaisesRegex(ValueError,"须保留已确认文案"):
+            e.reconstruct(project,{**item,"revision":"invalid-breaks"})
