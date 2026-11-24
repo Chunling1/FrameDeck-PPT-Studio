@@ -4,9 +4,13 @@
 
 **[下载 Windows 便携版](https://github.com/Chunling1/FrameDeck-PPT-Studio/releases/latest)** · [使用指南](docs/guide.md) · [在 Agent 中使用](skill/ppt-gpt-studio/references/agent-mode.md)
 
-![FrameDeck PPT Studio 的全稿预览与导出界面，使用春季岸线观测离线示例](docs/workspace.png)
+## 科研样例：低温空气源热泵现场监测
 
-*工作台实拍。示例使用合成资料，可以离线完成制作和导出。*
+![低温空气源热泵现场监测 PPT 封面](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/cover.webp)
+
+五页讲清测点与计量边界、数据预处理、室温下降的事件复核，以及温差和电功率的区间对照。标题、流程图和柱图数据均可编辑。图像为 AI 示意，柱图采用合成数据。
+
+[下载可编辑 PPTX](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/heat-pump-monitoring.pptx) · [查看其余四页与参考资料](https://github.com/Chunling1/FrameDeck-PPT-Studio/tree/main/docs/examples/heat-pump)
 
 ## 快速开始
 
