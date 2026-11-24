@@ -9,15 +9,15 @@ from typing import Literal
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 
-CACHE_VERSION="composition-2"
+CACHE_VERSION="composition-3"
 EDIT_VERSION="editorial-5"
-PROMPT_FORMAT=3
+PROMPT_FORMAT=4
 RESEARCH_COMPOSITION=Path(__file__).resolve().parent/"skill/ppt-gpt-studio/references/research-composition.md"
 
 FIELDS={"question":"本页要回答的问题","candidate_a":"构图候选一","candidate_b":"构图候选二",
         "choice":"取舍依据与主视觉","sequence":"选定构图与观看顺序","treatment":"视觉层级与绘制细节",
         "handoff":"原件、可编辑层与结论位置","boundary":"证据边界与审图判据",
-        "medium":"画法、材质与光影（发给画图模型）","layout":"粗版面格局（发给画图模型）","art":"主视觉画面描述（发给画图模型）"}
+        "medium":"画法、材质与光影（发给画图模型）","layout":"整页构图、层级与阅读顺序（发给画图模型）","art":"主视觉画面描述（发给画图模型）"}
 DIRECTOR="""你是演示视觉设计师。先用已确认资料回答「听众要判断什么」，再按论证关系组织图片、数据与文字。
 design_input.research_composition 如存在，是科研构图参考。只迁移分区、证据关系和阅读路线。案例中的研究主题、数值、素材与标识不属于本项目。以用户在 requirements 中明确的风格和材料选择为准。
 按固定字段输出单页内容卡。前八个字段给策划、校核和可编辑重建使用：
@@ -30,7 +30,7 @@ design_input.research_composition 如存在，是科研构图参考。只迁移�
 - boundary：写清证据可支持的范围和本页审图点。标清观测条件、基准及单位，不把拟验证写成结果。不得虚构实测数据、证书、机构标识、现场照片或来源。
 后三个字段会原样交给画图模型（GPT / Gemini 图像模型）。画图模型只理解画面，不理解流程、工程和审核规则，所以这三个字段只写「画面是什么样」：
 - medium：一到两句写画法与质感，是全页审美的来源。写清插画类型（如扁平编辑式信息插画、细线技术插图、等距线框、纸艺拼贴、柔光三维黏土等）、线条与笔触、材质、光线和整体气质，可借用「像某类出版物或设计语言」的说法。沿用全稿已选风格，跨页保持一致。
-- layout：两到三句粗版面，只用「上方、左侧约三分之一、右侧大部分、居中、下方一条」这类粗粒度位置，说明标题、主视觉、文字区和留白的大致位置。不写精确百分比、像素、基线或对齐线。
+- layout：写出所选整页构图的主图占比、标题与文字对齐线、图文分组、字号层级、阅读顺序和安全留白。按已确认文案顺序交代每组放在上、下、左、右哪一区，说明哪几组共用一条对齐线。可以用相对比例，不用逐像素指令。所有说明区都应有内容。
 - art：本页最重要的一段，用连贯叙述写主视觉：画什么主体、用什么隐喻、从什么视角、各对象之间的空间关系与运动方向、哪一处是视觉焦点、细节与质感。可按「先背景、再中景、最后焦点」分步描述复杂画面。diagram 页写清节点造型与箭头走向；illustration 页的主插画内部只画图形。
 这三个字段的写法要求：只用肯定句描述想要的画面（用「纯平面色块，没有明暗面」代替「禁止伪三维」）；不写「原生、可编辑、裁切、PowerPoint、校核、提示词、页尾交付」等工程或流程词；不写上屏文字原文、数字、引文和来源，上屏文字由系统根据确认稿另行注入；不写未选构图或替代实验事实。
 按 design_input.page_mode（本页已确认的制作方式）填写 art。page_mode 为 illustration 或 diagram 时，art 必须是可直接画的画面描述，开头不写「无需生图」；diagram 可画已确认节点与箭头，illustration 需留边界明确的无字插画区。只有 page_mode 为 native（chart、flow、原生排版和指定原件页）时，art 以「无需生图」开头，medium 和 layout 仍填写以保持全稿一致。制作方式只能在逐页方案确定。

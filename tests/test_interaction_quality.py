@@ -1,6 +1,7 @@
 import copy
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -72,6 +73,15 @@ class InteractionQualityTests(unittest.TestCase):
             e.action(s,"export",{})
         self.assertEqual(e.get(s["id"])["stage"],"exported")
         self.assertEqual(set(s["approvals"]),set(e.approvals.GATES))
+        root=e.root(s)
+        delivery=e.delivery_dir(s,s["deliveries"][-1]["id"])
+        first=s["pages"][0]
+        native=(root/first["native_preview"]).read_bytes()
+        self.assertNotEqual(native,(root/first["preview"]).read_bytes())
+        self.assertEqual(Presentation(delivery/"image.pptx").slides[0].shapes[0].image.blob,native)
+        with zipfile.ZipFile(delivery/"project.zip") as bundle:
+            self.assertEqual(bundle.read("pages/01.png"),native)
+            self.assertEqual(bundle.read("locked-scenes.json"),bundle.read("scenes.json"))
 
     def test_auditor_cannot_switch_art_route(self):
         s=e.create("校核","组员","教程",True)
@@ -116,6 +126,37 @@ class InteractionQualityTests(unittest.TestCase):
         self.assertEqual(len(links),2)
         self.assertFalse(any(n["type"]=="image" for n in pair["native_scene"]["nodes"]))
         self.assertEqual(pair["preview"],art)
+
+    def test_split_text_and_anchored_leaders(self):
+        s=e.create("部件图","组员","讲部件位置")
+        root=e.root(s)
+        art="cache/fixture.png"
+        Image.new("RGB",(1280,720),"#F6F8FC").save(root/art)
+        page=dict(kind="content",layout="wide",title="机组部件",conclusion="沿图识别",copy=["风机 持续送风。"],claims=[])
+        scene=e.render.scene(page,1,1,0,art)
+        nodes=[n for n in scene["nodes"] if n["type"]!="image"]
+        rows=[dict(index=i,**{k:n[k] for k in ("x","y","w","h")}) for i,n in enumerate(nodes)]
+        parts=[dict(text="风机",x=60,y=290,w=220,h=38,size=24,bold=True),
+               dict(text="持续送风。",x=60,y=330,w=220,h=35,size=18)]
+        rows[4]=dict(index=4,parts=parts)
+        leader=dict(index=4,part=0,points=[[270,300],[380,300],[520,340]])
+        result=dict(objects=rows,crops=[dict(x=385,y=281,w=480,h=320)],callouts=[leader])
+        item=dict(scene=scene,preview=art,full_image=True)
+        with patch("providers.ask",return_value=result):
+            pair=e.pair_page(s,item)
+        out=root/"output"
+        e.render.decks([pair["native_scene"]],root,out,editable_name="parts.pptx")
+        e.render.verify_editable(out/"parts.pptx",[pair["native_scene"]])
+        shapes=Presentation(out/"parts.pptx").slides[0].shapes
+        self.assertTrue({"风机","持续送风。"}<={shape.text for shape in shapes if shape.has_text_frame})
+        self.assertEqual(sum(shape.name=="部件引线" for shape in shapes),2)
+        parts[1]["text"]="未经确认的说明"
+        with patch("providers.ask",return_value=result),self.assertRaisesRegex(ValueError,"须完整保留"):
+            e.reconstruct(s,{**item,"revision":"mutated"})
+        parts[1]["text"]="持续送风。"
+        leader["points"][-1]=[100,390]
+        with patch("providers.ask",return_value=result),self.assertRaisesRegex(ValueError,"插画内"):
+            e.reconstruct(s,{**item,"revision":"anchor-outside"})
 
 
     def test_diagram_preserves_visual_hierarchy_in_export(self):

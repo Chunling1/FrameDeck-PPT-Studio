@@ -4,13 +4,13 @@
 
 **[下载 Windows 便携版](https://github.com/Chunling1/FrameDeck-PPT-Studio/releases/latest)** · [使用指南](docs/guide.md) · [在 Agent 中使用](skill/ppt-gpt-studio/references/agent-mode.md)
 
-## 科研样例：低温空气源热泵现场监测
+## 样例：一页讲清台式电脑主机
 
-![低温空气源热泵现场监测 PPT 封面](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/cover.webp?v=2)
+[![左侧为整页生图原稿，右侧为可编辑 PowerPoint 的实际渲染](docs/examples/pc-structure/comparison.webp)](docs/examples/pc-structure/comparison.webp)
 
-从热泵和建筑剖面出发，用供回水方向和测点标注讲清计量边界，再展示数据预处理、事件复核与工况对照。五页 PPT 的文字、箭头和柱图数据均可编辑。插画为 AI 示意，柱图采用合成数据。
+左侧是整页生图原稿，右侧是实际导出的可编辑 PPTX 渲染。机箱剖面是独立图片，可直接替换。七组部件名称与说明、指示线和底部四步流程都可以在 PowerPoint 中单独修改。
 
-[下载可编辑 PPTX](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/heat-pump-monitoring.pptx?v=2) · [查看其余四页与参考资料](https://github.com/Chunling1/FrameDeck-PPT-Studio/tree/main/docs/examples/heat-pump)
+[下载整页生图原稿](docs/examples/pc-structure/pc-structure-original.pptx?raw=1) · [下载可编辑 PPTX](docs/examples/pc-structure/pc-structure-editable.pptx?raw=1) · [查看五页热泵监测样例](docs/examples/heat-pump/README.md)
 
 ## 快速开始
 
@@ -24,7 +24,7 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `image.pptx` | 投影或分发。每页保留已审阅的整页画面。 |
+| `image.pptx` | 投影或分发。每页由已确认的原生版面渲染成图。 |
 | `editable.pptx` | 继续修改。文字、流程节点、连线和原生柱状图可编辑，插画是独立可替换的图片。 |
 | `project.zip` | 归档或重建。包含来源摘录、审核记录、场景描述和素材。 |
 

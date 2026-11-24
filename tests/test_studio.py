@@ -385,7 +385,7 @@ class StudioTests(unittest.TestCase):
     def test_picture_prompt_is_plain_visual_language_with_quoted_copy(self):
         self.run_to("prompts")
         s=self.s
-        self.assertEqual(s["prompt_format"],3)
+        self.assertEqual(s["prompt_format"],4)
         s["plan"]["slides"][2]["art_mode"]="diagram"
         s["plan"]["slides"][2]["diagram"]={"labels":["读取状态","已完成","未完成"],"links":[[0,1],[0,2]]}
         cover=e.image_prompt(s,0);diagram=e.image_prompt(s,2)
@@ -398,6 +398,12 @@ class StudioTests(unittest.TestCase):
         self.assertIn("“"+s["plan"]["slides"][0]["title"]+"”",cover)
         self.assertIn("“读取状态”指向“已完成”",diagram)
         self.assertNotIn("[[0, 1]",diagram)
+        long_copy="现场先记录机组运行状态和环境温度，再核对时间与缺测记录。"
+        s["plan"]["slides"][2]["copy"]=[long_copy]
+        self.assertIn(f"“{long_copy}”",e.image_prompt(s,2))
+        self.assertNotIn("不在里面写字",e.image_prompt(s,2))
+        s["prompt_format"]=3
+        self.assertNotIn(long_copy,e.image_prompt(s,2))
 
     def test_picture_prompt_falls_back_for_older_direction_cards(self):
         self.run_to("prompts")

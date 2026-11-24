@@ -55,7 +55,7 @@ def wrap(txt,w,size,bold):
     return lines
 
 
-def scene(s,i,total,variant,image,refs=None,ratio="16:9"):
+def scene(s,i,total,variant,image,refs=None,ratio="16:9",*,reconstructing=False):
     cw,ch=canvas(ratio);sx,sy=cw/W,ch/H
     def rx(v):return round(v*sx)
     def ry(v):return round(v*sy)
@@ -70,7 +70,7 @@ def scene(s,i,total,variant,image,refs=None,ratio="16:9"):
             if len(lines)*step<=sh: break
             sz-=1
         else: raise ValueError(f"第 {i} 页文本超出版面，请精简："+txt[:25])
-        box(kind,x,y,w,h,text="\n".join(lines),size=sz,step=step,color=color,bold=bold)
+        box(kind,x,y,w,h,text="\n".join(lines),source_text=txt,size=sz,step=step,color=color,bold=bold)
     text({"cover":"学习路线","chart":"数据","content":"要点","flow":"步骤","divider":"章节"}[s["kind"]],64,42,600,38,19,accent,True)
     box("rule",64,92,1152,2,color=ink)
     structured=s["kind"] in ("flow","chart")
@@ -88,7 +88,7 @@ def scene(s,i,total,variant,image,refs=None,ratio="16:9"):
         text(s["title"],tx,112 if wide else 165,tw,80 if wide else 150,49 if s["kind"]=="cover" else 42,bold=True)
         text(s["conclusion"],tx,195 if wide else 333,tw,75 if wide else 108,27)
         if image:
-            text("\n".join(s["copy"]),tx,269 if wide else 455,tw,78 if wide else 171,21)
+            text("\n".join(s["copy"]),tx,269 if wide else 455,tw,235 if reconstructing else 78 if wide else 171,21)
             box("image",ix,iy,iw,ih,file=image)
         elif wide:
             text("\n".join(s["copy"]),64,300,1152,300,26)
@@ -168,6 +168,11 @@ def graph_edges(sc):
         yield a,b,style
 
 
+def marker_bounds(point):
+    x,y=point
+    return x-4,y-4,x+4,y+4
+
+
 def proof(sc,root,out):
     cw,ch=sc.get("width",W),sc.get("height",H)
     im=Image.new("RGB",(cw,ch),"#"+sc["bg"]); d=ImageDraw.Draw(im)
@@ -207,6 +212,10 @@ def proof(sc,root,out):
                 label=f"{val:g} {data['unit']}".strip()
                 d.text((cx,base-height-8),label,font=font(19),fill=ink,anchor="mb")
                 d.text((cx,base+8),cat,font=font(19),fill=ink,anchor="mt")
+    for callout in sc.get("callouts",[]):
+        points=[tuple(p) for p in callout["points"]];ink="#"+callout["color"]
+        d.line(points,fill=ink,width=callout["width"])
+        d.ellipse(marker_bounds(points[-1]),fill="#FFFFFF",outline=ink,width=callout["width"])
     im.save(out)
 
 
@@ -322,6 +331,17 @@ def decks(scenes,root,dest,*,editable_name=None):
                 co.line.color.rgb=rgb(style["color"]);co.line.width=Pt(style["width"]*.75 if "diagram_edge_styles" in sc else 2)
                 arrow=OxmlElement("a:tailEnd");arrow.set("type","triangle")
                 co.line._get_or_add_ln().append(arrow)
+            for callout in sc.get("callouts",[]):
+                points=callout["points"];ink=rgb(callout["color"]);weight=Pt(callout["width"]*.75)
+                for start,end in zip(points,points[1:]):
+                    co=sl.shapes.add_connector(MSO_CONNECTOR.STRAIGHT,*(u(v) for v in (*start,*end)))
+                    flat_shape(co);co.name="部件引线"
+                    co.line.color.rgb=ink;co.line.width=weight
+                x,y,_,_=marker_bounds(points[-1])
+                dot=sl.shapes.add_shape(MSO_SHAPE.OVAL,u(x),u(y),u(8),u(8))
+                flat_shape(dot);dot.name="部件定位点"
+                dot.fill.solid();dot.fill.fore_color.rgb=rgb("FFFFFF")
+                dot.line.color.rgb=ink;dot.line.width=weight
         prs.save(dest/name)
 
 
@@ -336,7 +356,10 @@ def verify_editable(file,scenes):
         required={n["text"].replace("\n","") for n in nodes if n["type"] in ("text","diagram_box","diagram_number") and n["text"]}
         chart_count=sum(s.has_chart for s in shapes)
         diagram_edges=[s for s in shapes if s.name=="关系连线"]
+        callouts=scene.get("callouts",[])
         if (not required.issubset(texts) or chart_count!=sum(n["type"]=="chart" for n in nodes) or
             len(diagram_edges)!=len(scene.get("diagram_links",[])) or
-            any(not (s._element.xpath(".//a:stCxn") and s._element.xpath(".//a:endCxn")) for s in diagram_edges)):
-            raise ValueError(f"实际导出的 PPTX 第 {i} 页缺少原生文字、图表或节点连接")
+            any(not (s._element.xpath(".//a:stCxn") and s._element.xpath(".//a:endCxn")) for s in diagram_edges) or
+            sum(s.name=="部件引线" for s in shapes)!=sum(len(c["points"])-1 for c in callouts) or
+            sum(s.name=="部件定位点" for s in shapes)!=len(callouts)):
+            raise ValueError(f"实际导出的 PPTX 第 {i} 页缺少原生文字、图表或连接")
