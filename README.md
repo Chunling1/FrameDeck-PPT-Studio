@@ -6,11 +6,11 @@
 
 ## 科研样例：低温空气源热泵现场监测
 
-![低温空气源热泵现场监测 PPT 封面](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/cover.webp)
+![低温空气源热泵现场监测 PPT 封面](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/cover.webp?v=2)
 
-五页讲清测点与计量边界、数据预处理、室温下降的事件复核，以及温差和电功率的区间对照。标题、流程图和柱图数据均可编辑。图像为 AI 示意，柱图采用合成数据。
+从热泵和建筑剖面出发，用供回水方向和测点标注讲清计量边界，再展示数据预处理、事件复核与工况对照。五页 PPT 的文字、箭头和柱图数据均可编辑。插画为 AI 示意，柱图采用合成数据。
 
-[下载可编辑 PPTX](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/heat-pump-monitoring.pptx) · [查看其余四页与参考资料](https://github.com/Chunling1/FrameDeck-PPT-Studio/tree/main/docs/examples/heat-pump)
+[下载可编辑 PPTX](https://raw.githubusercontent.com/Chunling1/FrameDeck-PPT-Studio/main/docs/examples/heat-pump/heat-pump-monitoring.pptx?v=2) · [查看其余四页与参考资料](https://github.com/Chunling1/FrameDeck-PPT-Studio/tree/main/docs/examples/heat-pump)
 
 ## 快速开始
 
