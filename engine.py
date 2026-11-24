@@ -243,6 +243,7 @@ def picture_prompt(s,i,p,d,mode,settings,preset_name,preset_desc,ratio,v):
     layout=(d.get("layout") or d.get("sequence") or "").strip()
     art=d["art"].strip()
     copy=[c.strip() for c in p.get("copy",[]) if c.strip()]
+    complete=s.get("prompt_format")==4
     texts=[f"标题写{quote(p['title'])}，是画面中最大、最醒目的文字，粗体无衬线中文字体。"]
     if mode=="diagram":
         labels=p["diagram"]["labels"]
@@ -250,12 +251,17 @@ def picture_prompt(s,i,p,d,mode,settings,preset_name,preset_desc,ratio,v):
         arrows=[f"{quote(labels[a])}指向{quote(labels[b])}" for a,b in p["diagram"]["links"] if a<len(labels) and b<len(labels)]
         if arrows:texts.append("用箭头连接："+"；".join(arrows)+"。除此之外节点之间不连线。")
     conclusion=p["conclusion"].strip()
-    if conclusion and len(conclusion)<=SHORT_CONCLUSION:
+    if conclusion and (complete or len(conclusion)<=SHORT_CONCLUSION):
         texts.append(f"结论写{quote(conclusion)}，字号明显小于标题，放在文字区的醒目位置。")
-    short=[c for c in copy if len(c)<=SHORT_LABEL][:3]
-    if short:texts.append("短标签写"+"、".join(quote(c) for c in short)+"，各自靠近对应的图形。")
-    if len(short)<len(copy) or (conclusion and len(conclusion)>SHORT_CONCLUSION):
-        texts.append("其余说明较长，在文字区留出整齐的浅色空白区域，不在里面写字。")
+    if complete:
+        if copy:
+            texts.append("按版面安排逐项排入下列确认文案，名称与说明可分行并区分字重：\n"+
+                         "\n".join(quote(c) for c in copy)+"\n文字区须完整排字，各组贴近对应部件或说明区，避免留空的标签框。")
+    else:
+        short=[c for c in copy if len(c)<=SHORT_LABEL][:3]
+        if short:texts.append("短标签写"+"、".join(quote(c) for c in short)+"，各自靠近对应的图形。")
+        if len(short)<len(copy) or (conclusion and len(conclusion)>SHORT_CONCLUSION):
+            texts.append("其余说明较长，在文字区留出整齐的浅色空白区域，不在里面写字。")
     if mode!="diagram":
         texts.append("主插画与文字之间留出一条干净的背景间隙，插画内部只画图形。")
     texts.append("画面中只出现上述引号内的文字，每个字笔画清晰、端正、完整。")
@@ -284,7 +290,7 @@ def image_prompt(s,i,v=None):
     bg,line,pending,surface=render.PALETTES[settings["palette"] if v is None else v]
     d=ds[i]
     mode=page_mode(p)
-    if s.get("prompt_format")==3:
+    if s.get("prompt_format") in (3,4):
         return picture_prompt(s,i,p,d,mode,settings,preset_name,preset_desc,ratio,v)
     if s.get("prompt_format")==2:
         if mode=="diagram":
@@ -426,12 +432,12 @@ def visual(s,i,v,provider,*,replace=False,previous_art="",redraw=False):
                     if count>=3:raise ValueError("此版本图片已尝试三次，请人工检查并修改提示词后再生成。")
                     attempt.write_text(str(count+1))
                 ref_files=[r/a["file"] for a in refs]+[r/f for f in locked]
-                request=compiled+("\n\n"+REFERENCE_NOTE if ref_files and s.get("prompt_format")==3 else "")
+                request=compiled+("\n\n"+REFERENCE_NOTE if ref_files and s.get("prompt_format") in (3,4) else "")
                 agent_backend.draw(s,provider,request,r/art,ref_files)
     ratio=s.get("aspect_ratio","16:9")
     cw,ch=render.canvas(ratio)
-    sc=render.scene(p,i+1,len(s["plan"]["slides"]),v,art,citations,ratio=ratio)
     full_slide=bool(not s["demo"] and compiled and (r/art).is_file())
+    sc=render.scene(p,i+1,len(s["plan"]["slides"]),v,art,citations,ratio=ratio,reconstructing=full_slide)
     if full_slide:
         with Image.open(r/art) as im:
             image=ImageOps.contain(im.convert("RGB"),(cw,ch),Image.Resampling.LANCZOS)
@@ -463,12 +469,14 @@ def montage(s,files,label):
 
 def critique(s,files,context,label):
     if s["demo"]:return {"pass":True,"issues":[],"basis":"合成演示，无模型打分"}
-    cache=root(s)/"cache"/(digest(["visual-review-v2",files,context,label,agent_backend.role(s,"critic")])+"-review.json")
+    cache=root(s)/"cache"/(digest(["visual-review-v3",files,context,label,agent_backend.role(s,"critic")])+"-review.json")
     if cache.exists():return json.loads(cache.read_text(encoding="utf8"))
     record=validate_review(agent_backend.ask(s,"critic",GUARD+
         "作为独立视觉编辑，按实际看到的图评价：层级、阅读顺序、投影可读性、对齐、是否忠于文案和原图、跨页一致性。"
         "如果同时给出原图与重建，检查主次字号比例、主动换行、标签对齐、步骤编号、节点描边和连线样式。"
-        "逐条指出页号和画面位置。文字重叠、重要视觉层级或关系丢失放 issues 阻断；轻微的样式偏差放 advice。"
+        "逐项与本页确认稿比对。如果要求首图完整，首图漏掉应上屏的文字、出现空标签框、关键字画错或自加关系时，"
+        "指出页号、具体位置与文本并放 issues。"
+        "文字重叠、重要视觉层级或关系丢失放 issues 阻断；轻微的样式偏差放 advice。"
         "输出 {pass:bool,issues:[字符串],advice:字符串,scores:{hierarchy:1至5,clarity:1至5,consistency:1至5}}。",
         context,[root(s)/f for f in files]))
     dump(cache,record);return record
@@ -509,7 +517,7 @@ def layout_text(node,row,minimum,maximum,*,diagram=False):
     bold=row.get("bold",node["bold"])
     if type(bold) is not bool:
         raise ValueError("重建字重无效")
-    text=node["text"]
+    text=node.get("source_text",node["text"])
     supplied=row.get("lines")
     if supplied is not None:
         if (not isinstance(supplied,list) or not supplied or
@@ -520,7 +528,7 @@ def layout_text(node,row,minimum,maximum,*,diagram=False):
     if available_width<=0:
         raise ValueError("重建内边距超出文字框")
     while size>=minimum:
-        lines=supplied if supplied is not None else render.wrap(text if diagram else text.replace("\n",""),available_width,size,bold)
+        lines=supplied if supplied is not None else render.wrap(text,available_width,size,bold)
         step=int(size*(1.28 if diagram else 1.38))
         if len(lines)*step<=node["h"]-2*py and all(render.font(size,bold).getlength(line)<=available_width for line in lines):
             return dict(text="\n".join(lines),size=size,step=step,bold=bold,align=align,valign=valign,
@@ -531,18 +539,69 @@ def layout_text(node,row,minimum,maximum,*,diagram=False):
     raise ValueError("重建文字框容不下已确认文案：" + text[:30])
 
 
+def place_layout_object(node,row,width,height):
+    node={**node,**layout_box(row,width,height)}
+    node["color"]=layout_color(row.get("color",node["color"]),"重建对象颜色无效")
+    if node["type"] in ("text","number"):
+        node.update(layout_text(node,row,14,120))
+    return node
+
+
+def layout_objects(node,row,width,height):
+    if "parts" not in row:
+        return [place_layout_object(node,row,width,height)]
+    parts=row["parts"]
+    if (node["type"]!="text" or not isinstance(parts,list) or not 2<=len(parts)<=24 or
+        any(not isinstance(part,dict) or not isinstance(part.get("text"),str) or
+            not part["text"].strip() for part in parts)):
+        raise ValueError("文字拆分需提供 2 至 24 个非空文本对象")
+    original=node.get("source_text",node["text"])
+    if "".join("".join(p["text"] for p in parts).split())!="".join(original.split()):
+        raise ValueError("文字拆分须完整保留已确认文案和顺序")
+    return [place_layout_object(dict(node,text=p["text"],source_text=p["text"]),p,width,height)
+            for p in parts]
+
+
+def layout_callouts(rows,objects,pictures,width,height):
+    if not isinstance(rows,list) or len(rows)>16:
+        raise ValueError("部件引线最多 16 条")
+    callouts=[]
+    for row in rows:
+        if not isinstance(row,dict) or type(row.get("index")) is not int or type(row.get("part",0)) is not int:
+            raise ValueError("部件引线须引用原生文字对象")
+        label=objects.get((row["index"],row.get("part",0)))
+        points=row.get("points")
+        if (not label or label["type"]!="text" or not label["text"] or not isinstance(points,list) or
+            not 2<=len(points)<=5 or any(not isinstance(p,list) or len(p)!=2 or
+            any(type(v) is not int for v in p) or not(0<=p[0]<width and 0<=p[1]<height) for p in points) or
+            any(a==b for a,b in zip(points,points[1:]))):
+            raise ValueError("部件引线须从标签出发并包含 2 至 5 个有效坐标")
+        x,y=points[0];tx,ty=points[-1]
+        near_side=min(abs(x-label["x"]),abs(x-label["x"]-label["w"]))<=24
+        if not near_side or not label["y"]<=y<=label["y"]+label["h"]:
+            raise ValueError("部件引线起点须靠近标签侧边")
+        if not any(pic["x"]+4<=tx<=pic["x"]+pic["w"]-4 and
+                   pic["y"]+4<=ty<=pic["y"]+pic["h"]-4 for pic in pictures):
+            raise ValueError("部件引线终点须指向插画内的部件")
+        callouts.append(dict(points=points,color=layout_color(row.get("color","426C9C"),"部件引线颜色无效"),
+                             width=layout_int(row.get("width",2),1,5,"部件引线粗细无效")))
+    return callouts
+
+
 def reconstruct(s,item):
     scene=copy.deepcopy(item["scene"])
     if s["demo"] or not item.get("full_image"):
         return scene
     root_dir=root(s)
-    key=digest(["native-layout-v8",item,agent_backend.role(s,"compiler")])
+    key=digest(["native-layout-v9",item,agent_backend.role(s,"compiler")])
     cache=root_dir/"cache"/(key+"-native.json")
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf8"))
     width,height=scene.get("width",render.W),scene.get("height",render.H)
     nodes=[n for n in scene["nodes"] if n["type"]!="image"]
     brief=[dict(index=i,**{k:v for k,v in n.items() if k in ("type","x","y","w","h","text","size","color","bold")}) for i,n in enumerate(nodes)]
+    for n,row in zip(nodes,brief,strict=True):
+        if "source_text" in n:row["text"]=n["source_text"]
     diagram=item.get("diagram")
     graphic_instructions=(
         "此页是关系图。返回 diagram_boxes，每个对象按已确认节点顺序包含 index,x,y,w,h,size,color,fill。"
@@ -550,7 +609,7 @@ def reconstruct(s,item):
         "corner_radius（像素，0为直角）。图上有步骤编号时，用 number 保留本节点的原顺序号（如 01），"
         "并用 number_align（left/center/right）、number_color、number_size 保留视觉样式。"
         "可加 diagram_edges，逐条以批准的连线顺序返回 {index,color,width}（六位HEX、像素）。"
-        "节点文字与连线方向从已确认数据读取，勿重写。crops 可为空。"
+        "节点文字与连线方向从已确认数据读取，勿重写。有插画时给其独立裁剪区，纯关系图的 crops 可为空。"
         if diagram else
         "从图中裁出干净的主插画。只能裁没有后续需编辑文字或箭头的区域，避免切断主体、带入标题和制造重复标签。"
         "如无法得到干净主图，返回重制建议，不要用整页截图或丢掉插画。"
@@ -561,11 +620,15 @@ def reconstruct(s,item):
         "标题、正文、结论、来源、页码维持已批准的文字，不从图片 OCR 取文案；用足够大的字和能容纳文案的框。"
         "对齐、字重、字号比例及段间留白按原图还原。需要保留断行时用 lines 字符串数组，拼接后只允许与已确认文本有空白差异。"
         "文字对象可返回 align:left/center/right，valign:top/middle/bottom，bold:布尔值，pad_x/pad_y:对称内边距像素。"
+        "若一段正文涵盖多组部件标注、标题和说明，拆成 parts；每一项有原文 text 和独立 x,y,w,h,size,color，"
+        "可指定 bold 和 lines。parts 在 JSON 中按源文字顺序排列，拼接后必须保留每个字及标点，画面位置可分散在图的两侧。"
+        "部件标签需要连到主图时返回 callouts，条目为 {index:文字对象索引,part:从0起的拆分序号,points:[[x,y],...],color,width}。"
+        "从标签侧边出发，沿不遮挡文字的路径连接插画内对应部件；看不清部件时不能猜位置。"
         +graphic_instructions+
         "用画布绝对像素返回 JSON：{background:'六位HEX',issue:'仅当整页确实无法产出可用版式时填写阻断原因，只要能给出可用 objects 就必须留空字符串，不要把补充建议写进 issue',"
         "objects:[{index:整数,x:整数,y:整数,w:整数,h:整数,size:整数,color:'六位HEX',keep:布尔值}],"
         "crops:[{name:'插画名称',x:整数,y:整数,w:整数,h:整数}]}。"
-        "objects 按输入顺序逐项覆盖，规则线的 size 可省略；绘图范围不可互相压住。"
+        "objects 按输入顺序逐项覆盖，拆分行可只返回 index 和 parts，规则线的 size 可省略；绘图范围不可互相压住。"
         "构图和裁剪以本页样张为准，不替换已有文案、数字或来源。",
         {"width":width,"height":height,"objects":brief,"diagram":diagram},[root_dir/item["preview"]])
     if not isinstance(result,dict):
@@ -578,7 +641,7 @@ def reconstruct(s,item):
     rows=result.get("objects")
     if not isinstance(rows,list) or len(rows)!=len(nodes):
         raise ValueError("看图重建没有返回完整对象")
-    selected=[]
+    selected=[];object_map={}
     for index,(node,row) in enumerate(zip(nodes,rows)):
         if not isinstance(row,dict) or row.get("index")!=index:
             raise ValueError("看图重建对象顺序不符")
@@ -586,11 +649,9 @@ def reconstruct(s,item):
             if node["type"]=="rule" or index==0 and (node.get("text","").isupper() or node.get("text","") in ("学习路线","数据","要点","步骤","章节")):
                 continue
             raise ValueError("标题、正文、结论、来源和页码必须保留")
-        node.update(layout_box(row,width,height))
-        node["color"]=layout_color(row.get("color",node["color"]),"重建对象颜色无效")
-        if node["type"] in ("text","number"):
-            node.update(layout_text(node,row,14,120))
-        selected.append(node)
+        placed=layout_objects(node,row,width,height)
+        selected.extend(placed)
+        object_map.update({(index,j):n for j,n in enumerate(placed)})
     occupied=[render.text_area(n) if n["type"] in ("text","number") else n for n in selected if n["type"] not in ("text","number") or n.get("text")]
     if any(overlaps(n,m) for i,n in enumerate(occupied) for m in occupied[:i]):
         raise ValueError("可编辑对象互相遮挡，请调整构图后重试")
@@ -659,13 +720,15 @@ def reconstruct(s,item):
         render.crop_region(root_dir/item["preview"],box,root_dir/crop_file,width,height)
         pictures.append(dict(type="image",**box,file=crop_file,name=str(crop.get("name","插画"))[:60]))
     scene.update(bg=background.upper(),nodes=pictures+selected)
+    callouts=layout_callouts(result.get("callouts",[]),object_map,pictures,width,height)
+    if callouts:scene["callouts"]=callouts
     dump(cache,scene)
     return scene
 
 
 def pair_page(s,item):
     native=reconstruct(s,item)
-    key=digest(["native-proof-v4",native])
+    key=digest(["native-proof-v5",native])
     file=f"cache/{key}.png"
     if not (root(s)/file).is_file():
         render.proof(native,root(s),root(s)/file)
@@ -730,7 +793,7 @@ def reviewed_pair(s,i,result,label="slide"):
     except ValueError as error:
         return result,{"pass":False,"issues":[f"可编辑排版未通过：{error}"]}
     report=critique(s,[result["preview"],result["native_preview"]],
-        {"page":s["plan"]["slides"][i],"compiled_prompt":image_prompt(s,i),
+        {"page":s["plan"]["slides"][i],"compiled_prompt":image_prompt(s,i),"require_complete_first_visual":s.get("prompt_format")==4,
          "focus":"左为整页视觉稿，右为原生排版预览，核对构图、层级、留白、素材裁切和文字完整性。"},
         label+"-pair")
     return result,report
@@ -914,6 +977,7 @@ def action(s,op,b):
                 option["pptx"]=pptx
                 report=critique(s,[file for pair in zip(sample,native) for file in pair],
                     {"prompt_settings":prompt_settings(s),"pages":[s["plan"]["slides"][i] for i in picks],
+                     "require_complete_first_visual":s.get("prompt_format")==4,
                      "focus":"每页依次是原图稿和可编辑排版预览。核对主视觉、图文比例、留白、裁剪、文字重影和信息完整。",
                      **({"actual_pptx":str((r/pptx).resolve())} if agent_backend.in_agent(s) else {})},"paired-samples")
             s["samples"][label]=option
@@ -989,18 +1053,19 @@ def action(s,op,b):
         output.mkdir(exist_ok=True)
         scenes=[]
         for i,x in enumerate(s["pages"],1):
-            shutil.copyfile(r/x["preview"],r/f"pages/{i:02}.png");scenes.append(x["native_scene"])
+            shutil.copyfile(r/x["native_preview"],r/f"pages/{i:02}.png");scenes.append(x["native_scene"])
         render.decks(scenes,r,output)
         render.verify_editable(output/"editable.pptx",scenes)
         with zipfile.ZipFile(output/"project.zip","w",zipfile.ZIP_DEFLATED) as z:
             z.writestr("scenes.json",json.dumps(scenes,ensure_ascii=False))
-            z.writestr("locked-scenes.json",json.dumps([x["scene"] for x in s["pages"]],ensure_ascii=False))
+            z.writestr("locked-scenes.json",json.dumps(scenes,ensure_ascii=False))
             z.writestr("project.json",json.dumps({**s,"prompts":prompts(s)},ensure_ascii=False))
             files={n["file"] for sc in scenes for n in sc["nodes"] if n["type"]=="image"}
             files.update(x["file"] for x in s["assets"])
             for file in sorted(files):z.write(r/file,file)
             for i in range(1,len(scenes)+1):z.write(r/f"pages/{i:02}.png",f"pages/{i:02}.png")
-            z.write(r/s["montage"],"montage.png")
+            native_montage=s.get("native_montage") or montage(s,[x["native_preview"] for x in s["pages"]],"native-all")
+            z.write(r/native_montage,"montage.png")
             for name in ["render.py","rebuild.py","requirements.txt","LICENSE"]:z.write(BASE/name,name)
         s["deliveries"]=[*versions,{"id":version,"at":time.time()}]
         go("exported")
