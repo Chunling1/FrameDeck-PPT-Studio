@@ -231,6 +231,9 @@ class InteractionQualityTests(unittest.TestCase):
         self.assertEqual(anchors["bottom_bar"]["fill"],"E1E9DC")
         self.assertEqual(len(anchors.get("dividers",[])),1)
         self.assertAlmostEqual(anchors["dividers"][0]["x"],640,delta=2)
+        dark="cache/dark-reference.png"
+        Image.new("RGB",(1280,720),"#10202C").save(root/dark)
+        self.assertNotIn("title_box",e.visual_anchors.extract_anchors(root/dark,1280,720))
 
         page=dict(kind="content",layout="left",title="账号定位方法",
                   conclusion="不追大而全，先锁定一个垂直问题。",
@@ -276,3 +279,13 @@ class InteractionQualityTests(unittest.TestCase):
         bad_result["objects"][4]["runs"][1]["text"]="\n篡改后的正文"
         with patch("providers.ask",return_value=bad_result),self.assertRaisesRegex(ValueError,"须完整保留已确认文案"):
             e.reconstruct(project,{**item,"revision":"mutated-runs"})
+
+        bad_rule=copy.deepcopy(result)
+        bad_rule["rules"][0].update(x=810,y=180,w=2,h=300)
+        with patch("providers.ask",return_value=bad_rule),self.assertRaisesRegex(ValueError,"不得穿过"):
+            e.reconstruct(project,{**item,"revision":"rule-through-art"})
+
+        bad_crop=copy.deepcopy(result)
+        bad_crop["crops"][0].update(y=581,h=26)
+        with patch("providers.ask",return_value=bad_crop),self.assertRaisesRegex(ValueError,"压住"):
+            e.reconstruct(project,{**item,"revision":"intersect-banner-margin"})

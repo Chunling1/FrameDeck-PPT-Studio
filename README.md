@@ -2,7 +2,7 @@
 
 把研究资料、会议纪要或项目说明做成可编辑的 PowerPoint。你可以先定逐页文案，再对照视觉稿和可编辑样张，最后导出 PPTX。适合科研汇报、项目答辩和技术分享。
 
-**[下载 Windows 便携版](https://github.com/Chunling1/FrameDeck-PPT-Studio/releases/latest)** · [使用指南](docs/guide.md) · [在 Agent 中使用](skill/ppt-gpt-studio/references/agent-mode.md)
+**[下载 Windows 便携版](https://github.com/Chunling1/FrameDeck-PPT-Studio/releases/latest)** · [使用指南](docs/guide.md) · [在 Agent 中使用](skill/academic-ppt-doctor/references/agent-mode.md)
 
 ## 样例：一页讲清台式电脑主机
 
@@ -18,7 +18,7 @@
 2. 双击 `launch.cmd`。如果浏览器没有自动打开，访问终端显示的地址。
 3. 选择 **打开离线示例**。沿左侧流程做一次逐页策划、打样、审阅和导出。这个示例无需 API Key。
 
-想用自己的资料时，在工作台新建项目，并在「模型设置」配置所选服务的 API Key。也可以通过 [PPT Studio Skill](skill/ppt-gpt-studio/SKILL.md) 让当前对话 Agent 完成模型步骤。能否生图取决于 Agent 是否提供图像工具。
+想用自己的资料时，在工作台新建项目，并在「模型设置」配置所选服务的 API Key。也可以通过 [academic-ppt-doctor Skill](skill/academic-ppt-doctor/SKILL.md) 让当前对话 Agent 完成模型步骤。能否生图取决于 Agent 是否提供图像工具。
 
 ## 导出的文件
 
@@ -45,7 +45,7 @@ python -m venv .venv
 ## 项目文档
 
 - [使用与开发指南](docs/guide.md)涵盖素材导入、模型配置、文件存放和本地验证。
-- [科研构图参考](skill/ppt-gpt-studio/references/research-composition.md)涵盖问题提出、技术路线、证据对照等科研页面。
-- [Agent 操作指南](skill/ppt-gpt-studio/references/agent-mode.md)包含无需另配 API Key 的 CLI 工作流与确认步骤。
+- [科研构图参考](skill/academic-ppt-doctor/references/research-composition.md)涵盖问题提出、技术路线、证据对照等科研页面。
+- [Agent 操作指南](skill/academic-ppt-doctor/references/agent-mode.md)包含无需另配 API Key 的 CLI 工作流与确认步骤。
 
 遇到问题时，欢迎在 [Issues](https://github.com/Chunling1/FrameDeck-PPT-Studio/issues) 附上版本、复现步骤和脱敏报错。代码采用 [MIT 许可](LICENSE)。

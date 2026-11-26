@@ -1,6 +1,6 @@
 # FrameDeck PPT Studio 使用指南
 
-[返回项目首页](../README.md) · [Agent 操作指南](../skill/ppt-gpt-studio/references/agent-mode.md)
+[返回项目首页](../README.md) · [Agent 操作指南](../skill/academic-ppt-doctor/references/agent-mode.md)
 
 ## 1. 导入资料
 
@@ -16,7 +16,7 @@
 | --- | --- | --- |
 | 离线示例 | 第一次试用或检查本地导出 | 点击「打开离线示例」，不需要账户或 API Key。 |
 | 工作台 + API | 用自己的资料和模型制作 | 在「模型设置」填写所用服务的 API Key，再新建真实项目。 |
-| 对话 Agent | 在能读写本地文件、运行终端命令的 Agent 中制作 | 读取 [Skill](../skill/ppt-gpt-studio/SKILL.md)，默认由当前 Agent 接手模型任务。生图需要 Agent 提供图像工具。 |
+| 对话 Agent | 在能读写本地文件、运行终端命令的 Agent 中制作 | 读取 [academic-ppt-doctor](../skill/academic-ppt-doctor/SKILL.md)，默认由当前 Agent 接手模型任务。生图需要 Agent 提供图像工具。 |
 
 工作台的密钥仅保留在当前进程。命令行也可使用 `OPENAI_API_KEY`、`GEMINI_API_KEY` 或 `ANTHROPIC_API_KEY`。策划、校核、视觉审核、可编辑重建和生图可分别配置模型，模型格式为 `供应商/模型ID`。支持的环境变量见 [providers.py](../providers.py)。使用云端 API 时，相关资料会发送给所选服务商，费用由该 API 账户承担。
 
@@ -24,7 +24,7 @@
 
 ## 3. 审阅和交付
 
-1. **逐页策划**。确认标题、结论、图表数据、原文引用和图片用途。科研风格会参考[科研构图知识库](../skill/ppt-gpt-studio/references/research-composition.md)。
+1. **逐页策划**。确认标题、结论、图表数据、原文引用和图片用途。科研风格会参考[科研构图知识库](../skill/academic-ppt-doctor/references/research-composition.md)。
 2. **提示词校核**。逐页查看设计稿、完整生图提示词和校核意见。「编辑公共提示词」可调整通用生图指令和原生页面配色。修改后重新校核再打样。
 3. **风格打样**。样张提供视觉稿、可编辑排版预览和可下载的 PPTX。启用两家生图服务时可以盲选。原生图表与保留原件从同一份定稿绘制，两套样张中的这些页可能相同。
 4. **全稿审阅、锁版**。可单页修改和复审，再导出图片版、可编辑版和工程包。只读查看前面的步骤不会回退，选择回退修改会使后续确认失效。

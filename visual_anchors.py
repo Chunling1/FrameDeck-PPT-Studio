@@ -106,9 +106,10 @@ def extract_anchors(image_path, width=1280, height=720):
         im = raw.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
     bg = _sample_bg(im, width, height)
     anchors = dict(background=_rgb_hex(bg))
-    title = _dark_text_bbox(im, int(width * 0.03), int(height * 0.02), int(width * 0.97), int(height * 0.21))
-    if title:
-        anchors["title_box"] = title
+    if sum(bg) / 3 >= 160:
+        title = _dark_text_bbox(im, int(width * 0.03), int(height * 0.02), int(width * 0.97), int(height * 0.21))
+        if title:
+            anchors["title_box"] = title
     bar = _detect_bottom_bar(im, bg, width, height)
     if bar:
         anchors["bottom_bar"] = bar

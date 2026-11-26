@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][string]$Destination)
 $ErrorActionPreference='Stop'
 $src=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (Test-Path -LiteralPath $Destination) {throw 'Refusing to overwrite an existing directory'}
-$approved=@('.gitignore','LICENSE','README.md','requirements.txt','package.json','package-lock.json','ui.tsx','PromptReview.tsx','launch.cmd','studio.py','app.py','models.py','providers.py','tasks.py','approvals.py','agent_backend.py','gateway.py','art_direction.py','engine.py','render.py','rebuild.py','static','scripts','skill','tests','docs\guide.md','docs\workspace.png')
+$approved=@('.gitignore','LICENSE','README.md','requirements.txt','package.json','package-lock.json','ui.tsx','PromptReview.tsx','launch.cmd','studio.py','app.py','models.py','providers.py','tasks.py','approvals.py','agent_backend.py','gateway.py','art_direction.py','engine.py','render.py','visual_anchors.py','rebuild.py','static','scripts','skill','tests','docs\guide.md','docs\workspace.png')
 $files=@(foreach($name in $approved){
     $p=Get-Item -LiteralPath (Join-Path $src $name)
     if ($p.PSIsContainer) {Get-ChildItem -LiteralPath $p.FullName -Recurse -File | Where-Object {$_.FullName -notmatch '__pycache__' -and $_.Extension -ne '.pyc'}} else {$p}

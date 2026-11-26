@@ -490,9 +490,9 @@ def layout_box(values, width, height):
     return dict(x=x,y=y,w=w,h=h)
 
 
-def overlaps(a,b):
-    return (min(a["x"]+a["w"],b["x"]+b["w"])-max(a["x"],b["x"])>2 and
-            min(a["y"]+a["h"],b["y"]+b["h"])-max(a["y"],b["y"])>2)
+def overlaps(a,b,tolerance=2):
+    return (min(a["x"]+a["w"],b["x"]+b["w"])-max(a["x"],b["x"])>tolerance and
+            min(a["y"]+a["h"],b["y"]+b["h"])-max(a["y"],b["y"])>tolerance)
 
 
 def layout_color(value, message):
@@ -533,7 +533,8 @@ def layout_text(node,row,minimum,maximum,*,diagram=False):
                 raise ValueError("富文本片段字重无效")
             r_size=layout_int(r.get("size",size),minimum,maximum,"富文本片段字号不在可读范围")
             r_color=layout_color(r.get("color",node["color"]),"富文本片段颜色无效")
-            parsed_runs.append(dict(text=r["text"],size=r_size,bold=r_bold,color=r_color))
+            run_text=r["text"].replace("\r\n","\n").replace("\r","\n")
+            parsed_runs.append(dict(text=run_text,size=r_size,bold=r_bold,color=r_color))
         max_sz=max(r["size"] for r in parsed_runs)
         step=int(max_sz*(1.28 if diagram else 1.38))
         joined="".join(r["text"] for r in parsed_runs)
@@ -630,7 +631,7 @@ def reconstruct(s,item):
     if s["demo"] or not item.get("full_image"):
         return scene
     root_dir=root(s)
-    key=digest(["native-layout-v10",item,agent_backend.role(s,"compiler")])
+    key=digest(["native-layout-v11",item,agent_backend.role(s,"compiler")])
     cache=root_dir/"cache"/(key+"-native.json")
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf8"))
@@ -654,7 +655,7 @@ def reconstruct(s,item):
     anchors=visual_anchors.extract_anchors(root_dir/item["preview"],width,height)
     result=agent_backend.ask(s,"compiler",GUARD+
         "你是演示稿排版师。按图片实际构图复建：先定位主视觉、文字区域、留白及对齐线，再给每个原生对象实际位置和尺寸。"
-        "输入附带 visual_anchors（零依赖像素提取的底色、标题框、底部色条和分割线坐标参考），有值时优先对齐这些实测坐标与色值。"
+        "visual_anchors 是基于像素的候选坐标和色值。对照实际图片，采纳与所见元素吻合的候选。"
         "输入位置只是默认值，可以跨栏移动或改变宽高。页眉/页脚装饰缺失时，用 keep=false 省略 type=rule 或没有来源内容的装饰页眉。"
         "标题、正文、结论、来源、页码维持已批准的文字，不从图片 OCR 取文案；用足够大的字和能容纳文案的框。"
         "对齐、字重、字号比例及段间留白按原图还原。需要保留断行时用 lines 字符串数组，拼接后只允许与已确认文本有空白差异。"
@@ -694,7 +695,12 @@ def reconstruct(s,item):
         placed=layout_objects(node,row,width,height)
         selected.extend(placed)
         object_map.update({(index,j):n for j,n in enumerate(placed)})
-    occupied=[render.text_area(n) if n["type"] in ("text","number") else n for n in selected if n["type"] not in ("text","number") or n.get("text")]
+    occupied=[]
+    for node in selected:
+        if node["type"] not in ("text","number") or node.get("fill") or node.get("stroke"):
+            occupied.append(node)
+        elif node.get("text"):
+            occupied.append(render.text_area(node))
     if any(overlaps(n,m) for i,n in enumerate(occupied) for m in occupied[:i]):
         raise ValueError("可编辑对象互相遮挡，请调整构图后重试")
     if diagram:
@@ -770,6 +776,10 @@ def reconstruct(s,item):
             if not isinstance(r,dict):
                 raise ValueError("装饰分割线格式无效")
             rbox=layout_box(r,width,height)
+            if min(rbox["w"],rbox["h"])>12:
+                raise ValueError("装饰分割线须为细线")
+            if any(overlaps(rbox,box,tolerance=0) for box in occupied+pictures):
+                raise ValueError("装饰分割线不得穿过文字、图解或插画")
             extra_rules.append(dict(type="rule",**rbox,color=layout_color(r.get("color","C6C7BF"),"分割线颜色无效")))
     scene.update(bg=background.upper(),nodes=pictures+extra_rules+selected)
     callouts=layout_callouts(result.get("callouts",[]),object_map,pictures,width,height)

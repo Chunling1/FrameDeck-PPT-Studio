@@ -174,12 +174,15 @@ def draw_text(d,n):
     align=n.get("align","center" if n["type"]=="diagram_box" else "left")
     if n.get("runs"):
         for j,line_runs in enumerate(run_lines(n)):
-            line_w=sum(font(r["size"],r["bold"]).getlength(r["text"]) for r in line_runs)
+            if not line_runs:
+                continue
+            fonts=[font(r["size"],r["bold"]) for r in line_runs]
+            line_w=sum(f.getlength(r["text"]) for r,f in zip(line_runs,fonts))
             x=area["x"] if align=="left" else (area["x"]+(area["w"]-line_w)/2 if align=="center" else area["x"]+area["w"]-line_w)
-            y=area["y"]+j*n["step"]
-            for r in line_runs:
-                f=font(r["size"],r["bold"])
-                d.text((x,y),r["text"],font=f,fill="#"+r["color"],anchor="lt")
+            top=min(f.getbbox(r["text"],anchor="ls")[1] for r,f in zip(line_runs,fonts))
+            baseline=area["y"]+j*n["step"]-top
+            for r,f in zip(line_runs,fonts):
+                d.text((x,baseline),r["text"],font=f,fill="#"+r["color"],anchor="ls")
                 x+=f.getlength(r["text"])
         return
     offset,anchor={"left":(0,"lt"),"center":(.5,"mt"),"right":(1,"rt")}[align]
