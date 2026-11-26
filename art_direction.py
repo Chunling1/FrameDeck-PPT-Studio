@@ -12,7 +12,7 @@ from contextvars import copy_context
 CACHE_VERSION="composition-3"
 EDIT_VERSION="editorial-5"
 PROMPT_FORMAT=4
-RESEARCH_COMPOSITION=Path(__file__).resolve().parent/"skill/ppt-gpt-studio/references/research-composition.md"
+RESEARCH_COMPOSITION=Path(__file__).resolve().parent/"skill/academic-ppt-doctor/references/research-composition.md"
 
 FIELDS={"question":"本页要回答的问题","candidate_a":"构图候选一","candidate_b":"构图候选二",
         "choice":"取舍依据与主视觉","sequence":"选定构图与观看顺序","treatment":"视觉层级与绘制细节",

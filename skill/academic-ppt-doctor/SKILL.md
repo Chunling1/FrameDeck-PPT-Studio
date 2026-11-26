@@ -1,5 +1,5 @@
 ---
-name: ppt-gpt-studio
+name: academic-ppt-doctor
 description: 通过对话确认逐页内容、整页生图、原生可编辑样张和完整演示稿，并用本地 Studio 导出两种 PPTX。用于希望保留主视觉、同时编辑文字、数据或图解的项目。
 ---
 

@@ -14,7 +14,7 @@ $site = Join-Path $rt 'Lib\site-packages'
 python -m pip install --disable-pip-version-check --only-binary=:all: --platform win_amd64 --implementation cp --python-version 3.12 --abi cp312 --target $site -r (Join-Path $src 'requirements.txt') --index-url https://pypi.org/simple
 if ($LASTEXITCODE) { throw 'Dependency installation failed' }
 @('python312.zip','.','..','Lib\site-packages','import site') | Set-Content -Encoding ascii -LiteralPath (Join-Path $rt 'python312._pth')
-foreach ($name in @('studio.py','app.py','providers.py','tasks.py','approvals.py','agent_backend.py','gateway.py','art_direction.py','engine.py','models.py','render.py','rebuild.py','launch.cmd','LICENSE','README.md','requirements.txt','static','skill')) {
+foreach ($name in @('studio.py','app.py','providers.py','tasks.py','approvals.py','agent_backend.py','gateway.py','art_direction.py','engine.py','models.py','render.py','visual_anchors.py','rebuild.py','launch.cmd','LICENSE','README.md','requirements.txt','static','skill')) {
     Copy-Item -LiteralPath (Join-Path $src $name) -Destination $out -Recurse
 }
 $docs = New-Item -ItemType Directory -Path (Join-Path $out 'docs')

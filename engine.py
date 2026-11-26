@@ -21,6 +21,7 @@ import render
 import tasks
 import approvals
 import agent_backend
+import visual_anchors
 
 BASE=Path(__file__).resolve().parent
 HOME=Path(os.getenv("PPT_STUDIO_HOME",Path.home()/".ppt-gpt-studio"))
@@ -489,9 +490,9 @@ def layout_box(values, width, height):
     return dict(x=x,y=y,w=w,h=h)
 
 
-def overlaps(a,b):
-    return (min(a["x"]+a["w"],b["x"]+b["w"])-max(a["x"],b["x"])>2 and
-            min(a["y"]+a["h"],b["y"]+b["h"])-max(a["y"],b["y"])>2)
+def overlaps(a,b,tolerance=2):
+    return (min(a["x"]+a["w"],b["x"]+b["w"])-max(a["x"],b["x"])>tolerance and
+            min(a["y"]+a["h"],b["y"]+b["h"])-max(a["y"],b["y"])>tolerance)
 
 
 def layout_color(value, message):
@@ -518,6 +519,35 @@ def layout_text(node,row,minimum,maximum,*,diagram=False):
     if type(bold) is not bool:
         raise ValueError("重建字重无效")
     text=node.get("source_text",node["text"])
+    runs=row.get("runs")
+    if runs is not None:
+        if (not isinstance(runs,list) or not runs or len(runs)>32 or
+            any(not isinstance(r,dict) or not isinstance(r.get("text"),str) or not r["text"] for r in runs)):
+            raise ValueError("富文本 runs 需提供 1 至 32 个非空片段")
+        if "".join("".join(r["text"] for r in runs).split())!="".join(text.split()):
+            raise ValueError("富文本 runs 须完整保留已确认文案和顺序")
+        parsed_runs=[]
+        for r in runs:
+            r_bold=r.get("bold",bold)
+            if type(r_bold) is not bool:
+                raise ValueError("富文本片段字重无效")
+            r_size=layout_int(r.get("size",size),minimum,maximum,"富文本片段字号不在可读范围")
+            r_color=layout_color(r.get("color",node["color"]),"富文本片段颜色无效")
+            run_text=r["text"].replace("\r\n","\n").replace("\r","\n")
+            parsed_runs.append(dict(text=run_text,size=r_size,bold=r_bold,color=r_color))
+        max_sz=max(r["size"] for r in parsed_runs)
+        step=int(max_sz*(1.28 if diagram else 1.38))
+        joined="".join(r["text"] for r in parsed_runs)
+        available_width=node["w"]-2*px-(0 if diagram else 4)
+        if available_width<=0:
+            raise ValueError("重建内边距超出文字框")
+        line_groups=render.run_lines(dict(runs=parsed_runs,size=size,bold=bold,color=node["color"]))
+        if len(line_groups)*step<=node["h"]-2*py and all(
+            sum(render.font(item["size"],item["bold"]).getlength(item["text"]) for item in lg)<=available_width
+            for lg in line_groups):
+            return dict(text=joined,runs=parsed_runs,size=size,step=step,bold=bold,align=align,valign=valign,
+                        pad_x=px,pad_y=py,keep_line_breaks=True)
+        raise ValueError("重建文字框容不下已确认文案：" + text[:30])
     supplied=row.get("lines")
     if supplied is not None:
         if (not isinstance(supplied,list) or not supplied or
@@ -544,6 +574,14 @@ def place_layout_object(node,row,width,height):
     node["color"]=layout_color(row.get("color",node["color"]),"重建对象颜色无效")
     if node["type"] in ("text","number"):
         node.update(layout_text(node,row,14,120))
+    if node["type"]=="text":
+        if row.get("fill"):
+            node["fill"]=layout_color(row["fill"],"文字底框填充色无效")
+        if "corner_radius" in row:
+            node["corner_radius"]=layout_int(row["corner_radius"],0,min(node["w"],node["h"])//2,"文字底框圆角无效")
+        if row.get("stroke"):
+            node["stroke"]=layout_color(row["stroke"],"文字底框描边颜色无效")
+            node["stroke_width"]=layout_int(row.get("stroke_width",1),1,12,"文字底框描边线宽无效")
     return node
 
 
@@ -593,7 +631,7 @@ def reconstruct(s,item):
     if s["demo"] or not item.get("full_image"):
         return scene
     root_dir=root(s)
-    key=digest(["native-layout-v9",item,agent_backend.role(s,"compiler")])
+    key=digest(["native-layout-v11",item,agent_backend.role(s,"compiler")])
     cache=root_dir/"cache"/(key+"-native.json")
     if cache.exists():
         return json.loads(cache.read_text(encoding="utf8"))
@@ -614,23 +652,28 @@ def reconstruct(s,item):
         "从图中裁出干净的主插画。只能裁没有后续需编辑文字或箭头的区域，避免切断主体、带入标题和制造重复标签。"
         "如无法得到干净主图，返回重制建议，不要用整页截图或丢掉插画。"
     )
+    anchors=visual_anchors.extract_anchors(root_dir/item["preview"],width,height)
     result=agent_backend.ask(s,"compiler",GUARD+
         "你是演示稿排版师。按图片实际构图复建：先定位主视觉、文字区域、留白及对齐线，再给每个原生对象实际位置和尺寸。"
+        "visual_anchors 是基于像素的候选坐标和色值。对照实际图片，采纳与所见元素吻合的候选。"
         "输入位置只是默认值，可以跨栏移动或改变宽高。页眉/页脚装饰缺失时，用 keep=false 省略 type=rule 或没有来源内容的装饰页眉。"
         "标题、正文、结论、来源、页码维持已批准的文字，不从图片 OCR 取文案；用足够大的字和能容纳文案的框。"
         "对齐、字重、字号比例及段间留白按原图还原。需要保留断行时用 lines 字符串数组，拼接后只允许与已确认文本有空白差异。"
-        "文字对象可返回 align:left/center/right，valign:top/middle/bottom，bold:布尔值，pad_x/pad_y:对称内边距像素。"
+        "文字对象可返回 align:left/center/right，valign:top/middle/bottom，bold:布尔值，pad_x/pad_y:对称内边距像素；"
+        "当原图文字带底色条或卡片框时，可附 fill（六位HEX）、corner_radius、stroke、stroke_width 还原原生底框；"
+        "同一文本框内需区分粗体小标题与常规正文或局部高亮时，可返回 runs:[{text,bold,color,size}]，拼接后须完整保留已确认文案。"
         "若一段正文涵盖多组部件标注、标题和说明，拆成 parts；每一项有原文 text 和独立 x,y,w,h,size,color，"
-        "可指定 bold 和 lines。parts 在 JSON 中按源文字顺序排列，拼接后必须保留每个字及标点，画面位置可分散在图的两侧。"
+        "可指定 bold、lines、runs、fill。parts 在 JSON 中按源文字顺序排列，拼接后必须保留每个字及标点，画面位置可分散在图的两侧。"
         "部件标签需要连到主图时返回 callouts，条目为 {index:文字对象索引,part:从0起的拆分序号,points:[[x,y],...],color,width}。"
         "从标签侧边出发，沿不遮挡文字的路径连接插画内对应部件；看不清部件时不能猜位置。"
         +graphic_instructions+
         "用画布绝对像素返回 JSON：{background:'六位HEX',issue:'仅当整页确实无法产出可用版式时填写阻断原因，只要能给出可用 objects 就必须留空字符串，不要把补充建议写进 issue',"
         "objects:[{index:整数,x:整数,y:整数,w:整数,h:整数,size:整数,color:'六位HEX',keep:布尔值}],"
+        "rules:[{x:整数,y:整数,w:整数,h:整数,color:'六位HEX'}],"
         "crops:[{name:'插画名称',x:整数,y:整数,w:整数,h:整数}]}。"
-        "objects 按输入顺序逐项覆盖，拆分行可只返回 index 和 parts，规则线的 size 可省略；绘图范围不可互相压住。"
+        "rules 为可选的原生分割线/细装饰线（无则省略或空数组）。objects 按输入顺序逐项覆盖，拆分行可只返回 index 和 parts，规则线的 size 可省略；绘图范围不可互相压住。"
         "构图和裁剪以本页样张为准，不替换已有文案、数字或来源。",
-        {"width":width,"height":height,"objects":brief,"diagram":diagram},[root_dir/item["preview"]])
+        {"width":width,"height":height,"objects":brief,"diagram":diagram,"visual_anchors":anchors},[root_dir/item["preview"]])
     if not isinstance(result,dict):
         raise ValueError("看图重建未返回版式")
     if result.get("issue"):
@@ -652,7 +695,12 @@ def reconstruct(s,item):
         placed=layout_objects(node,row,width,height)
         selected.extend(placed)
         object_map.update({(index,j):n for j,n in enumerate(placed)})
-    occupied=[render.text_area(n) if n["type"] in ("text","number") else n for n in selected if n["type"] not in ("text","number") or n.get("text")]
+    occupied=[]
+    for node in selected:
+        if node["type"] not in ("text","number") or node.get("fill") or node.get("stroke"):
+            occupied.append(node)
+        elif node.get("text"):
+            occupied.append(render.text_area(node))
     if any(overlaps(n,m) for i,n in enumerate(occupied) for m in occupied[:i]):
         raise ValueError("可编辑对象互相遮挡，请调整构图后重试")
     if diagram:
@@ -719,7 +767,21 @@ def reconstruct(s,item):
         crop_file=f"cache/{key}-crop-{index}.png"
         render.crop_region(root_dir/item["preview"],box,root_dir/crop_file,width,height)
         pictures.append(dict(type="image",**box,file=crop_file,name=str(crop.get("name","插画"))[:60]))
-    scene.update(bg=background.upper(),nodes=pictures+selected)
+    extra_rules=[]
+    if "rules" in result:
+        raw_rules=result.get("rules")
+        if not isinstance(raw_rules,list) or len(raw_rules)>8:
+            raise ValueError("装饰分割线最多 8 条")
+        for r in raw_rules:
+            if not isinstance(r,dict):
+                raise ValueError("装饰分割线格式无效")
+            rbox=layout_box(r,width,height)
+            if min(rbox["w"],rbox["h"])>12:
+                raise ValueError("装饰分割线须为细线")
+            if any(overlaps(rbox,box,tolerance=0) for box in occupied+pictures):
+                raise ValueError("装饰分割线不得穿过文字、图解或插画")
+            extra_rules.append(dict(type="rule",**rbox,color=layout_color(r.get("color","C6C7BF"),"分割线颜色无效")))
+    scene.update(bg=background.upper(),nodes=pictures+extra_rules+selected)
     callouts=layout_callouts(result.get("callouts",[]),object_map,pictures,width,height)
     if callouts:scene["callouts"]=callouts
     dump(cache,scene)

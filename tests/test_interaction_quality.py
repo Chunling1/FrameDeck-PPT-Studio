@@ -211,3 +211,81 @@ class InteractionQualityTests(unittest.TestCase):
         boxes[-1]["lines"]=["归档：","替换确认过的文案"]
         with patch("providers.ask",return_value=result),self.assertRaisesRegex(ValueError,"须保留已确认文案"):
             e.reconstruct(project,{**item,"revision":"invalid-breaks"})
+
+    def test_visual_anchors_rich_runs_text_banner_and_divider_rules(self):
+        project=e.create("定位与复盘","个人创作者","检验零依赖锚点、行内富文本、底条与分割线")
+        root=e.root(project)
+        art="cache/anchored-reference.png"
+        canvas=Image.new("RGB",(1280,720),"#F4F4EC")
+        draw=ImageDraw.Draw(canvas)
+        # Simulated dark title bar, vertical divider at x=640, and bottom light-green pill bar
+        draw.rectangle((70,55,900,102),fill="#18332A")
+        draw.rectangle((640,185,642,580),fill="#C6C7BF")
+        draw.rounded_rectangle((60,596,1140,650),radius=10,fill="#E1E9DC")
+        canvas.save(root/art)
+
+        anchors=e.visual_anchors.extract_anchors(root/art,1280,720)
+        self.assertEqual(anchors["background"],"F4F4EC")
+        self.assertIn("title_box",anchors)
+        self.assertIn("bottom_bar",anchors)
+        self.assertEqual(anchors["bottom_bar"]["fill"],"E1E9DC")
+        self.assertEqual(len(anchors.get("dividers",[])),1)
+        self.assertAlmostEqual(anchors["dividers"][0]["x"],640,delta=2)
+        dark="cache/dark-reference.png"
+        Image.new("RGB",(1280,720),"#10202C").save(root/dark)
+        self.assertNotIn("title_box",e.visual_anchors.extract_anchors(root/dark,1280,720))
+
+        page=dict(kind="content",layout="left",title="账号定位方法",
+                  conclusion="不追大而全，先锁定一个垂直问题。",
+                  copy=["目标人群：明确写给谁看"],claims=[],asset="")
+        scene=e.render.scene(page,1,1,0,art)
+        base=[n for n in scene["nodes"] if n["type"]!="image"]
+        rows=[{k:n[k] for k in ("x","y","w","h")} | {"index":i,"keep":i not in (0,1,len(base)-3)}
+              for i,n in enumerate(base)]
+        rows[2].update(x=70,y=52,w=1100,h=68,size=44,bold=True)
+        rows[3].update(x=60,y=596,w=1080,h=54,size=24,bold=True,align="center",valign="middle",
+                       fill="E1E9DC",corner_radius=10)
+        rows[4].update(x=70,y=210,w=520,h=110,size=24,runs=[
+            dict(text="目标人群：",bold=True,size=26,color="18332A"),
+            dict(text="\n明确写给谁看",bold=False,size=22,color="18332A"),
+        ])
+        result=dict(
+            background="F4F4EC",
+            objects=rows,
+            rules=[dict(x=640,y=185,w=2,h=395,color="C6C7BF")],
+            crops=[dict(name="主插画",x=690,y=170,w=500,h=410)],
+        )
+        item=dict(scene=scene,preview=art,full_image=True)
+        captured={}
+        def fake_ask(role,prompt,payload,*args,**kwargs):
+            captured["payload"]=payload
+            return result
+        with patch("providers.ask",side_effect=fake_ask):
+            paired=e.pair_page(project,item)
+        self.assertEqual(captured["payload"]["visual_anchors"]["bottom_bar"]["fill"],"E1E9DC")
+        native=paired["native_scene"]
+        self.assertTrue((root/paired["native_preview"]).is_file())
+        dest=root/"output"/"rich-native.pptx"
+        e.render.decks([native],root,dest.parent,editable_name=dest.name)
+        e.render.verify_editable(dest,[native])
+        shapes=list(Presentation(dest).slides[0].shapes)
+        bullet_shape=next(s for s in shapes if s.has_text_frame and "目标人群：" in s.text)
+        self.assertTrue(bullet_shape.text_frame.paragraphs[0].runs[0].font.bold)
+        self.assertFalse(bullet_shape.text_frame.paragraphs[1].runs[0].font.bold)
+        banner_shape=next(s for s in shapes if s.has_text_frame and "垂直问题" in s.text)
+        self.assertEqual(str(banner_shape.fill.fore_color.rgb),"E1E9DC")
+
+        bad_result=copy.deepcopy(result)
+        bad_result["objects"][4]["runs"][1]["text"]="\n篡改后的正文"
+        with patch("providers.ask",return_value=bad_result),self.assertRaisesRegex(ValueError,"须完整保留已确认文案"):
+            e.reconstruct(project,{**item,"revision":"mutated-runs"})
+
+        bad_rule=copy.deepcopy(result)
+        bad_rule["rules"][0].update(x=810,y=180,w=2,h=300)
+        with patch("providers.ask",return_value=bad_rule),self.assertRaisesRegex(ValueError,"不得穿过"):
+            e.reconstruct(project,{**item,"revision":"rule-through-art"})
+
+        bad_crop=copy.deepcopy(result)
+        bad_crop["crops"][0].update(y=581,h=26)
+        with patch("providers.ask",return_value=bad_crop),self.assertRaisesRegex(ValueError,"压住"):
+            e.reconstruct(project,{**item,"revision":"intersect-banner-margin"})
