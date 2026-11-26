@@ -152,9 +152,36 @@ def text_area(n):
     return dict(x=n["x"]+px,y=n["y"]+py+offset,w=n["w"]-2*px,h=height)
 
 
+def run_lines(n):
+    lines=[[]]
+    for r in n["runs"]:
+        parts=r["text"].split("\n")
+        for idx,part in enumerate(parts):
+            if idx:
+                lines.append([])
+            if part:
+                lines[-1].append(dict(
+                    text=part,
+                    size=r.get("size",n["size"]),
+                    bold=r.get("bold",n["bold"]),
+                    color=r.get("color",n["color"]),
+                ))
+    return lines
+
+
 def draw_text(d,n):
     area=text_area(n)
     align=n.get("align","center" if n["type"]=="diagram_box" else "left")
+    if n.get("runs"):
+        for j,line_runs in enumerate(run_lines(n)):
+            line_w=sum(font(r["size"],r["bold"]).getlength(r["text"]) for r in line_runs)
+            x=area["x"] if align=="left" else (area["x"]+(area["w"]-line_w)/2 if align=="center" else area["x"]+area["w"]-line_w)
+            y=area["y"]+j*n["step"]
+            for r in line_runs:
+                f=font(r["size"],r["bold"])
+                d.text((x,y),r["text"],font=f,fill="#"+r["color"],anchor="lt")
+                x+=f.getlength(r["text"])
+        return
     offset,anchor={"left":(0,"lt"),"center":(.5,"mt"),"right":(1,"rt")}[align]
     x=area["x"]+offset*area["w"]
     for j,line in enumerate(n["text"].split("\n")):
@@ -187,6 +214,11 @@ def proof(sc,root,out):
     for n in sc["nodes"]:
         x,y,w,h=(n[k] for k in ("x","y","w","h")); t=n["type"]; color="#"+n.get("color","000000")
         if t in ("text","number","diagram_number"):
+            if n.get("fill") or n.get("stroke"):
+                stroke=n.get("stroke")
+                d.rounded_rectangle((x,y,x+w,y+h),radius=n.get("corner_radius",min(12,h//5)),
+                                    fill="#"+n["fill"] if n.get("fill") else None,
+                                    outline="#"+stroke if stroke else None,width=n.get("stroke_width",1))
             draw_text(d,n)
         elif t=="diagram_box":
             stroke=n.get("stroke")
@@ -240,6 +272,16 @@ def write_text(frame,n,u,rgb):
         frame.auto_size=MSO_AUTO_SIZE.NONE
     align={"left":PP_ALIGN.LEFT,"center":PP_ALIGN.CENTER,"right":PP_ALIGN.RIGHT}[
         n.get("align","center" if diagram else "left")]
+    if n.get("runs"):
+        for j,line_runs in enumerate(run_lines(n)):
+            p=frame.add_paragraph() if j else frame.paragraphs[0]
+            p.alignment=align
+            p.space_before=p.space_after=Pt(0)
+            p.line_spacing=Pt(n["step"]*.75)
+            for item in line_runs:
+                r=p.add_run();r.text=item["text"]
+                f=r.font;f.name=FONTNAME;f.size=Pt(item["size"]*.75);f.bold=item["bold"];f.color.rgb=rgb(item["color"])
+        return
     for j,line in enumerate(n["text"].split("\n")):
         p=frame.add_paragraph() if j else frame.paragraphs[0]
         p.alignment=align
@@ -318,7 +360,24 @@ def decks(scenes,root,dest,*,editable_name=None):
                 if t=="rule":
                     sh=sl.shapes.add_shape(MSO_SHAPE.RECTANGLE,*xy);sh.line.fill.background()
                     sh.fill.solid();sh.fill.fore_color.rgb=rgb(n["color"]);continue
-                obj=sl.shapes.add_textbox(*xy)
+                if n.get("fill") or n.get("stroke"):
+                    radius=n.get("corner_radius")
+                    shape=MSO_SHAPE.RECTANGLE if radius==0 else MSO_SHAPE.ROUNDED_RECTANGLE
+                    obj=sl.shapes.add_shape(shape,*xy)
+                    flat_shape(obj)
+                    if radius!=0:
+                        obj.adjustments[0]=.16 if radius is None else radius/min(n["w"],n["h"])
+                    if n.get("fill"):
+                        obj.fill.solid();obj.fill.fore_color.rgb=rgb(n["fill"])
+                    else:
+                        obj.fill.background()
+                    if n.get("stroke"):
+                        obj.line.color.rgb=rgb(n["stroke"])
+                        obj.line.width=Pt(n.get("stroke_width",1)*.75)
+                    else:
+                        obj.line.fill.background()
+                else:
+                    obj=sl.shapes.add_textbox(*xy)
                 obj.name=n.get("name") or n["text"][:40]
                 write_text(obj.text_frame,n,u,rgb)
             for a,b,style in graph_edges(sc):
